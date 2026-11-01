@@ -200,6 +200,15 @@ return false;
 }
 }
 
+function languageName(l){
+return({
+'it':'Italiano',
+'en':'Inglese',
+'ja':'Giapponese',
+'zh-tw':'Cinese tradizionale',
+'zh-cn':'Cinese semplificato'
+})[l]||l;
+}
 function makeEntryKey(l,id,v){
 return[l,id,v].map(x=>encodeURIComponent(String(x))).join('::');
 }
@@ -307,7 +316,7 @@ t.innerHTML='<div class="cards">'+collection.map(i=>
 '<article class="card">'+imageMarkup(i.image,i.name)+
 '<div class="card-name">'+escapeHTML(i.name)+'</div>'+
 '<div class="card-meta">'+escapeHTML(i.meta)+'<br>'+
-escapeHTML(i.language==='ja'?'Giapponese':'Italiano')+' · '+
+escapeHTML(languageName(i.language))+' · '+
 escapeHTML(i.variantLabel)+'</div>'+
 '<div class="qty"><button data-action="minus" data-entry="'+escapeHTML(i.entryKey)+'">−</button>'+
 '<span>× '+i.quantity+'</span>'+
@@ -460,7 +469,7 @@ return'<article class="card">'+
 imageMarkup(cardImage(c),c.name)+
 '<div class="card-name">'+escapeHTML(c.name)+'</div>'+
 '<div class="card-meta">'+escapeHTML(cardMeta(c)||'Dettagli non disponibili')+
-'<br>'+(l==='ja'?'Giapponese':'Italiano')+'</div>'+
+'<br>'+escapeHTML(languageName(l))+'</div>'+
 '<button data-variants="'+escapeHTML(key)+'">Carica varianti</button>'+
 '<div class="variant-panel" data-panel="'+escapeHTML(key)+'" hidden></div>'+
 '</article>';
