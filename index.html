@@ -44,7 +44,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:22p
 .results,.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:15px}
 .card{min-width:0;padding:11px;border:1px solid var(--line);border-radius:15px;background:var(--surface)}
 .image-wrap{position:relative;width:100%;height:180px;border-radius:9px;overflow:hidden;background:#191b20}
-.card img{display:block;width:100%;height:100%;object-fit:contain;border-radius:9px;background:#191b20}
+.image-wrap img{display:block;width:100%;height:100%;object-fit:contain;border-radius:9px;background:#191b20}
 .image-fallback{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:12px;text-align:center;color:var(--muted);background:linear-gradient(145deg,#292d35,#1c1f25)}
 .image-fallback[hidden]{display:none}
 .image-fallback span:first-child{font-size:34px}
@@ -125,7 +125,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:22p
 <p class="desc">Informazioni sul progetto.</p>
 <div class="hint">
 <strong>DaQuiDex</strong><br>
-Catalogo personale con ricerca in italiano e scelta del catalogo della carta posseduta: italiano, inglese, giapponese, cinese tradizionale e cinese semplificato. Per le lingue diverse dall’italiano è richiesta una ricerca nel catalogo scelto, perché gli identificativi delle carte non sono sempre condivisi tra cataloghi.<br><br>
+Catalogo personale con ricerca in italiano e scelta del catalogo della carta posseduta: italiano, inglese, giapponese, cinese tradizionale e cinese semplificato. Per le lingue diverse dall’italiano, la ricerca automatica usa il numero Pokédex per trovare possibili carte corrispondenti.<br><br>
 Le carte provengono dal catalogo TCGdex. Le varianti mostrate dipendono dai dati effettivamente pubblicati dal catalogo: non vengono create combinazioni non verificate.<br><br>
 I prezzi non sono ancora collegati: il valore della collezione resta indicato come non disponibile, senza inventare stime.
 </div>
@@ -446,42 +446,34 @@ if(!detail||String(detail.id)!==String(id))throw new Error('Identificativo non c
 renderVariantPanel(panel,detail,'it',extractVariants(detail));
 panel.dataset.loadedKey=key;
 }else{
-panel.innerHTML='<div class="variant-note">I cataloghi TCGdex non condividono sempre gli stessi ID. Per evitare di associare una carta sbagliata, cerca la carta direttamente nel catalogo '+escapeHTML(languageName(language))+'.</div>'+
-'<form data-language-search-form>'+
-'<label class="field-label">Nome della carta in '+escapeHTML(languageName(language))+'</label>'+
-'<input class="search" type="search" minlength="2" required placeholder="Inserisci il nome della carta">'+
-'<button type="submit">Cerca in '+escapeHTML(languageName(language))+'</button>'+
-'</form>'+
-'<div class="variant-note" data-language-search-status aria-live="polite"></div>'+
-'<div class="language-matches" data-language-matches></div>';
-const form=panel.querySelector('[data-language-search-form]');
-const searchInput=form.querySelector('input');
+panel.innerHTML='<div class="variant-note">Sto cercando automaticamente le carte '+escapeHTML(languageName(language))+' associate a questo Pokémon. Non devi conoscere né digitare il nome straniero.</div><div class="variant-note" data-language-search-status aria-live="polite">Analisi della carta italiana…</div><div class="language-matches" data-language-matches></div>';
 const status=panel.querySelector('[data-language-search-status]');
 const matches=panel.querySelector('[data-language-matches]');
-form.addEventListener('submit',async event=>{
-event.preventDefault();
-const term=searchInput.value.trim();
-if(term.length<2)return;
-status.textContent='Ricerca nel catalogo '+languageName(language)+'…';
-matches.innerHTML='';
-try{
-const response=await fetch(API+'/'+language+'/cards?name='+encodeURIComponent(term));
-if(!response.ok)throw new Error('Catalogo non disponibile');
+const sourceDetail=await fetchCardDetail('it',id);
+if(!sourceDetail||String(sourceDetail.id)!==String(id))throw new Error('Carta italiana non verificata');
+const dexIds=Array.isArray(sourceDetail.dexId)?sourceDetail.dexId.map(Number).filter(n=>Number.isFinite(n)&&n>0):[];
+if(!dexIds.length){
+status.textContent='Per questa carta il catalogo non fornisce un numero Pokédex. Non posso abbinarla automaticamente con sufficiente sicurezza. Nessuna carta è stata aggiunta.';
+}else{
+status.textContent='Ricerca automatica nel catalogo '+languageName(language)+'…';
+const groups=await Promise.all(dexIds.map(async dex=>{
+const response=await fetch(API+'/'+language+'/cards?dexId='+encodeURIComponent(String(dex)));
+if(!response.ok)throw new Error('Catalogo '+languageName(language)+' non disponibile');
 const data=await response.json();
-if(!Array.isArray(data)||!data.length){
-status.textContent='Nessun risultato. Prova con un altro nome.';
-return;
-}
-status.textContent=data.length+' risultati. Seleziona la carta che possiedi:';
-matches.innerHTML=data.map(c=>
-'<div class="match-row"><div class="match-name">'+escapeHTML(c.name)+' <span>'+escapeHTML(c.id)+'</span></div>'+
-'<button type="button" data-language-match="'+escapeHTML(c.id)+'">Seleziona questa carta</button></div>'
-).join('');
-}catch(error){
-console.error(error);
-status.textContent='Non riesco a cercare nel catalogo. Controlla la connessione e riprova.';
-}
+return Array.isArray(data)?data:[];
+}));
+const seen=new Set();
+const candidates=groups.flat().filter(c=>{
+if(!c||!c.id||seen.has(String(c.id)))return false;
+seen.add(String(c.id));return true;
 });
+if(!candidates.length){
+status.textContent='Non ho trovato corrispondenze automatiche in '+languageName(language)+'. Il catalogo potrebbe non contenere quella carta o quel Pokémon.';
+}else{
+status.textContent=candidates.length+' possibili carte trovate in '+languageName(language)+'. Controlla immagine, espansione e numero prima di scegliere: il Pokémon corrisponde, ma non è detto che sia la stessa stampa.';
+matches.innerHTML=candidates.map(c=>'<div class="match-row">'+imageMarkup(cardImage(c),c.name)+'<div class="match-name">'+escapeHTML(c.name)+' <span>'+escapeHTML(c.id)+'</span></div><div class="variant-note">'+escapeHTML(cardMeta(c)||'Dettagli del set da verificare')+'</div><button type="button" data-language-match="'+escapeHTML(c.id)+'">Verifica questa carta</button></div>').join('');
+}
+}
 matches.addEventListener('click',async event=>{
 const choice=event.target.closest('[data-language-match]');
 if(!choice)return;
@@ -491,6 +483,8 @@ status.textContent='Verifica della carta selezionata…';
 try{
 const detail=await fetchCardDetail(language,selectedId);
 if(!detail||String(detail.id)!==String(selectedId))throw new Error('Carta non verificata');
+const selectedDex=Array.isArray(detail.dexId)?detail.dexId.map(Number):[];
+if(!selectedDex.some(n=>dexIds.includes(n)))throw new Error('Il Pokémon non corrisponde alla ricerca iniziale');
 renderVariantPanel(panel,detail,language,extractVariants(detail));
 panel.dataset.loadedKey=key;
 }catch(error){
